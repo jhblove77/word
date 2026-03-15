@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>영어 암기 앱</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app-container">
+    <header class="app-header">
+      <h1>영어 암기 앱</h1>
+      <p class="subtitle">단어 시험, 단어 관리, 시험 기록 조회</p>
+      <div class="app-stats">
+        <div class="stat-item">
+          <span class="stat-label">총 단어수</span>
+          <span class="stat-value" id="total-words">0개</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">총 시험횟수</span>
+          <span class="stat-value" id="total-tests">0회</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">전체 정답률</span>
+          <span class="stat-value" id="overall-accuracy">0%</span>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <!-- 메인 메뉴 -->
+      <section id="main-menu" class="card active">
+        <h2>메인 메뉴</h2>
+        <div class="button-group">
+          <button id="start-test-btn" class="primary-btn">시험 시작</button>
+          <button id="manage-words-btn" class="secondary-btn">단어 관리</button>
+          <button id="view-history-btn" class="secondary-btn">시험 기록 조회</button>
+        </div>
+      </section>
+
+      <!-- 시험 화면 -->
+      <section id="test-screen" class="card hidden">
+        <div class="card-header">
+          <h2>영어 단어 시험</h2>
+          <button class="ghost-btn" id="back-to-main-from-test">메인으로</button>
+        </div>
+        <p id="test-progress" class="muted-text"></p>
+        <div id="test-content">
+          <div class="word-display">
+            <p class="label">영어 단어</p>
+            <p id="english-word" class="word"></p>
+          </div>
+          <div class="meaning-display">
+            <p class="label">뜻</p>
+            <p id="korean-meaning" class="word meaning hidden"></p>
+          </div>
+          <div class="button-group">
+            <button id="show-meaning-btn" class="primary-btn">뜻 보기</button>
+            <button id="correct-btn" class="success-btn" disabled>맞다</button>
+            <button id="wrong-btn" class="danger-btn" disabled>틀리다</button>
+          </div>
+        </div>
+        <div id="test-result" class="hidden">
+          <h3>시험 결과</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>번호</th>
+                <th>영어 단어</th>
+                <th>뜻</th>
+                <th>결과</th>
+              </tr>
+            </thead>
+            <tbody id="result-body"></tbody>
+          </table>
+          <div class="button-group">
+            <button id="restart-test-btn" class="primary-btn">다시 시험 보기</button>
+            <button id="back-to-main-from-result" class="secondary-btn">메인으로</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 단어 관리 화면 -->
+      <section id="manage-words-screen" class="card hidden">
+        <div class="card-header">
+          <h2>단어 관리</h2>
+          <button class="ghost-btn" id="back-to-main-from-manage">메인으로</button>
+        </div>
+
+        <div class="button-group center">
+          <button id="show-add-word-form-btn" class="primary-btn">새로운 단어 추가</button>
+        </div>
+
+        <div class="word-sort-controls">
+          <span class="label small">정렬:</span>
+          <button id="sort-by-created-btn" class="chip-btn active">등록순</button>
+          <button id="sort-by-accuracy-btn" class="chip-btn">정답률순</button>
+        </div>
+
+        <form id="add-word-form" class="form-inline hidden">
+          <div class="form-control">
+            <label for="new-english">영어 단어</label>
+            <input type="text" id="new-english" required />
+          </div>
+          <div class="form-control">
+            <label for="new-korean">뜻(한글)</label>
+            <input type="text" id="new-korean" required />
+          </div>
+          <button type="submit" class="primary-btn">추가</button>
+        </form>
+
+        <div class="word-list-container">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>영어 단어</th>
+                <th>뜻</th>
+                <th>등록일자</th>
+                <th>정답률</th>
+                <th>관리</th>
+              </tr>
+            </thead>
+            <tbody id="word-list"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 시험 기록 조회 화면 -->
+      <section id="history-screen" class="card hidden">
+        <div class="card-header">
+          <h2>시험 기록 조회</h2>
+          <button class="ghost-btn" id="back-to-main-from-history">메인으로</button>
+        </div>
+        <div class="history-controls">
+          <button id="clear-history-btn" class="danger-outline-btn">기록 전체 삭제</button>
+        </div>
+        <div class="history-list-container">
+          <table>
+            <thead>
+              <tr>
+                <th>날짜/시간</th>
+                <th>맞은 개수</th>
+                <th>틀린 개수</th>
+                <th>정답률</th>
+              </tr>
+            </thead>
+            <tbody id="history-list"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 정오표 모달 -->
+  <div id="history-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="history-modal-title">정오표</h3>
+        <button id="history-modal-close" class="ghost-btn small">닫기</button>
+      </div>
+      <div class="modal-body">
+        <div class="history-detail-table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>번호</th>
+                <th>영어 단어</th>
+                <th>뜻</th>
+                <th>결과</th>
+              </tr>
+            </thead>
+            <tbody id="history-modal-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
+
