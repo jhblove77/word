@@ -100,11 +100,6 @@ const DEFAULT_WORDS = [
   { english: "method", korean: "방법, 방식" }
 ];
 
-const STORAGE_KEYS = {
-  WORDS: "english_memo_words",
-  HISTORY: "english_memo_history"
-};
-
 // DOM 요소
 const mainMenu = document.getElementById("main-menu");
 const testScreen = document.getElementById("test-screen");
@@ -158,45 +153,21 @@ let currentIndex = 0;
 let answers = []; // { english, korean, isCorrect }
 let wordSortMode = "created"; // "created" | "accuracy"
 
-// 로컬 스토리지 유틸
+// 데이터 초기화 (로컬 스토리지 사용 안 함)
 function loadFromStorage() {
-  try {
-    const storedWords = JSON.parse(localStorage.getItem(STORAGE_KEYS.WORDS));
-    const storedHistory = JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY));
-
-    words = Array.isArray(storedWords) && storedWords.length > 0 ? storedWords : DEFAULT_WORDS.slice();
-    // 이전 데이터에 등록일자가 없는 경우 최근 7일 내 날짜를 골고루 배분해서 채워줌
-    let touched = false;
-    const now = new Date();
-    words.forEach((w, idx) => {
-      if (!w.createdAt) {
-        const d = new Date(now.getTime());
-        const offsetDays = idx % 7; // 0~6일 전
-        d.setDate(d.getDate() - offsetDays);
-        w.createdAt = d.toISOString();
-        touched = true;
-      }
-    });
-    if (touched) {
-      saveWords();
-    }
-    history = Array.isArray(storedHistory) ? storedHistory : [];
-  } catch (e) {
-    words = DEFAULT_WORDS.slice();
-    history = [];
-  }
+  // 기본 단어로 초기화 (페이지 새로고침 시 항상 동일하게 시작)
+  words = DEFAULT_WORDS.slice();
+  history = [];
 
   // 통계 초기 표시
   updateStats();
 }
 
 function saveWords() {
-  localStorage.setItem(STORAGE_KEYS.WORDS, JSON.stringify(words));
   updateStats();
 }
 
 function saveHistory() {
-  localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(history));
   updateStats();
 }
 
@@ -371,6 +342,7 @@ function startTest() {
     return;
   }
 
+  // 단어를 무작위로 섞어서 최대 10개만 출제
   const shuffled = shuffle(words);
   testQueue = shuffled.slice(0, Math.min(10, shuffled.length));
   currentIndex = 0;
