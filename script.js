@@ -205,7 +205,8 @@ function loadFromStorage() {
           const item = {
             english: v.word,
             korean: v.mean,
-            createdAt: v.date || null
+            createdAt: v.date || null,
+            firebaseKey: child.key
           };
 
           // 나중에 correct 리스트를 활용해서 정답률 계산하고 싶다면 여기에서 매핑
@@ -356,8 +357,32 @@ function renderWordList() {
 
       w.english = trimmedEng;
       w.korean = trimmedKor;
-      saveWords();
-      renderWordList();
+
+      // Firebase에도 수정 반영
+      if (firebaseDb && w.firebaseKey) {
+        firebaseDb
+          .ref(`words/${w.firebaseKey}`)
+          .update({
+            word: trimmedEng,
+            mean: trimmedKor
+          })
+          .then(() => {
+            console.log("Firebase 단어 수정 성공:", trimmedEng);
+            saveWords();
+            renderWordList();
+          })
+          .catch((err) => {
+            console.error("Firebase 단어 수정 실패:", err);
+            alert("Firebase에 단어를 수정하는 중 오류가 발생했습니다. 콘솔을 확인하세요.");
+            // 그래도 화면과 로컬은 갱신
+            saveWords();
+            renderWordList();
+          });
+      } else {
+        // Firebase key가 없는 경우(기본 단어 등)는 로컬만 수정
+        saveWords();
+        renderWordList();
+      }
     });
 
     const deleteBtn = document.createElement("button");
@@ -641,29 +666,44 @@ function setupEvents() {
     // 새로 추가한 단어가 목록의 맨 위에 보이도록 앞쪽에 추가
     const now = new Date();
     const createdAt = now.toISOString();
-    words.unshift({ english: eng, korean: kor, createdAt });
 
-    // Firebase Realtime Database에 저장
+    // Firebase Realtime Database에 먼저 저장
     if (firebaseDb) {
-      firebaseDb
-        .ref("words")
-        .push({
+      const ref = firebaseDb.ref("words").push();
+      const newData = {
           word: eng,
           mean: kor,
           date: createdAt,
           correct: [] // 정답률 리스트(처음엔 비어 있는 배열)
-        })
+      };
+
+      ref
+        .set(newData)
         .then(() => {
           console.log("Firebase에 단어 저장 성공:", eng);
+          // 로컬 배열에도 Firebase key를 포함해서 추가
+          words.unshift({
+            english: eng,
+            korean: kor,
+            createdAt,
+            firebaseKey: ref.key
+          });
+          saveWords();
+          renderWordList();
         })
         .catch((err) => {
           console.error("Firebase에 단어 저장 실패:", err);
           alert("Firebase에 단어를 저장하는 중 오류가 발생했습니다. 콘솔을 확인하세요.");
         });
-    } else {
-      console.warn("firebaseDb가 초기화되지 않아 Firebase에 저장하지 못했습니다.");
+
+      // 폼은 일단 비워 둔다
+      newEnglishInput.value = "";
+      newKoreanInput.value = "";
+      return;
     }
 
+    // Firebase가 없는 경우(오프라인 등) 로컬에만 추가
+    words.unshift({ english: eng, korean: kor, createdAt });
     saveWords();
     newEnglishInput.value = "";
     newKoreanInput.value = "";
