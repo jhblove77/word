@@ -186,52 +186,89 @@ let answers = []; // { english, korean, isCorrect }
 let wordSortMode = "created"; // "created" | "accuracy"
 
 function loadFromStorage() {
-  // 기본값: 로컬 기본 단어 사용
+  // 기본값: 로컬 기본 단어 / 빈 히스토리
   words = DEFAULT_WORDS.slice();
   history = [];
   updateStats();
 
-  // Firebase에 저장된 단어가 있으면 그것으로 덮어쓰기
-  if (firebaseDb) {
-    firebaseDb
-      .ref("words")
-      .once("value")
-      .then((snapshot) => {
-        const loaded = [];
-        snapshot.forEach((child) => {
-          const v = child.val();
-          if (!v || !v.word || !v.mean) return;
+  if (!firebaseDb) return;
 
-          const item = {
-            english: v.word,
-            korean: v.mean,
-            createdAt: v.date || null,
-            firebaseKey: child.key
-          };
+  // 1) Firebase에 저장된 단어가 있으면 단어 목록을 덮어쓰기
+  firebaseDb
+    .ref("words")
+    .once("value")
+    .then((snapshot) => {
+      const loadedWords = [];
+      snapshot.forEach((child) => {
+        const v = child.val();
+        if (!v || !v.word || !v.mean) return;
 
-          // 나중에 correct 리스트를 활용해서 정답률 계산하고 싶다면 여기에서 매핑
-          loaded.push(item);
-        });
+        const item = {
+          english: v.word,
+          korean: v.mean,
+          createdAt: v.date || null,
+          shownCount: typeof v.shownCount === "number" ? v.shownCount : 0,
+          correctCount: typeof v.correctCount === "number" ? v.correctCount : 0,
+          firebaseKey: child.key
+        };
 
-        if (loaded.length > 0) {
-          words = loaded;
-          updateStats();
-          // 단어 관리 화면이 열려 있을 경우 목록 새로 그리기
-          renderWordList();
-        }
-      })
-      .catch((err) => {
-        console.error("Firebase에서 단어 목록을 불러오는 중 오류:", err);
+        loadedWords.push(item);
       });
-  }
+
+      if (loadedWords.length > 0) {
+        words = loadedWords;
+      }
+      updateStats();
+      renderWordList();
+    })
+    .catch((err) => {
+      console.error("Firebase에서 단어 목록을 불러오는 중 오류:", err);
+    });
+
+  // 2) Firebase에 저장된 시험 기록(history) 불러오기
+  firebaseDb
+    .ref("history")
+    .once("value")
+    .then((snapshot) => {
+      const loadedHistory = [];
+      snapshot.forEach((child) => {
+        const v = child.val();
+        if (!v || !v.timestamp) return;
+        loadedHistory.push(v);
+      });
+
+      // 최신 기록이 위로 오도록 날짜 내림차순 정렬
+      loadedHistory.sort((a, b) => {
+        return (b.timestamp || "").localeCompare(a.timestamp || "");
+      });
+
+      history = loadedHistory;
+      updateStats();
+    })
+    .catch((err) => {
+      console.error("Firebase에서 시험 기록을 불러오는 중 오류:", err);
+    });
 }
 
 function saveWords() {
   updateStats();
+  // 단어 배열 변경 시 Firebase에도 집계 정보 반영 (shownCount / correctCount / date 등)
+  if (!firebaseDb) return;
+  words.forEach((w) => {
+    if (!w.firebaseKey) return;
+    firebaseDb.ref(`words/${w.firebaseKey}`).update({
+      word: w.english,
+      mean: w.korean,
+      date: w.createdAt || null,
+      shownCount: typeof w.shownCount === "number" ? w.shownCount : 0,
+      correctCount: typeof w.correctCount === "number" ? w.correctCount : 0
+    });
+  });
 }
 
 function saveHistory() {
   updateStats();
+  // 개별 기록 저장은 finishTest에서 push로 처리하므로 여기서는 별도 동작 없음
 }
 
 // 상단 통계 갱신
@@ -393,8 +430,26 @@ function renderWordList() {
         const originalIndex = words.indexOf(w);
         if (originalIndex !== -1) {
           words.splice(originalIndex, 1);
-          saveWords();
-          renderWordList();
+          // Firebase에서도 삭제
+          if (firebaseDb && w.firebaseKey) {
+            firebaseDb
+              .ref(`words/${w.firebaseKey}`)
+              .remove()
+              .then(() => {
+                console.log("Firebase 단어 삭제 성공:", w.english);
+                saveWords();
+                renderWordList();
+              })
+              .catch((err) => {
+                console.error("Firebase 단어 삭제 실패:", err);
+                alert("Firebase에서 단어를 삭제하는 중 오류가 발생했습니다. 콘솔을 확인하세요.");
+                saveWords();
+                renderWordList();
+              });
+          } else {
+            saveWords();
+            renderWordList();
+          }
         }
       }
     });
@@ -476,6 +531,17 @@ function onAnswer(isCorrect) {
     item.correctCount = (item.correctCount || 0) + 1;
   }
 
+   // Firebase 단어별 집계/정답 리스트 갱신
+  if (firebaseDb && item.firebaseKey) {
+    const wordRef = firebaseDb.ref(`words/${item.firebaseKey}`);
+    wordRef.update({
+      shownCount: item.shownCount,
+      correctCount: item.correctCount
+    });
+    // 정답 여부를 correct 리스트에도 추가 (간단히 push)
+    wordRef.child("correct").push(isCorrect);
+  }
+
   answers.push({
     english: item.english,
     korean: item.korean,
@@ -493,7 +559,7 @@ function finishTest() {
 
   // 기록 저장
   const now = new Date();
-  history.unshift({
+  const record = {
     timestamp: now.toISOString(),
     correct: correctCount,
     wrong: wrongCount,
@@ -504,8 +570,25 @@ function finishTest() {
       korean: a.korean,
       isCorrect: a.isCorrect
     }))
-  });
-  saveHistory();
+  };
+
+  history.unshift(record);
+  // Firebase에도 시험 기록 추가
+  if (firebaseDb) {
+    firebaseDb
+      .ref("history")
+      .push(record)
+      .then(() => {
+        console.log("Firebase에 시험 기록 저장 성공");
+        saveHistory();
+      })
+      .catch((err) => {
+        console.error("Firebase에 시험 기록 저장 실패:", err);
+        saveHistory();
+      });
+  } else {
+    saveHistory();
+  }
 
   // 단어별 통계 저장
   saveWords();
@@ -671,10 +754,12 @@ function setupEvents() {
     if (firebaseDb) {
       const ref = firebaseDb.ref("words").push();
       const newData = {
-          word: eng,
-          mean: kor,
-          date: createdAt,
-          correct: [] // 정답률 리스트(처음엔 비어 있는 배열)
+        word: eng,
+        mean: kor,
+        date: createdAt,
+        shownCount: 0,
+        correctCount: 0,
+        correct: [] // 정답률 리스트(처음엔 비어 있는 배열)
       };
 
       ref
@@ -686,6 +771,8 @@ function setupEvents() {
             english: eng,
             korean: kor,
             createdAt,
+            shownCount: 0,
+            correctCount: 0,
             firebaseKey: ref.key
           });
           saveWords();
@@ -727,8 +814,25 @@ function setupEvents() {
   clearHistoryBtn.addEventListener("click", () => {
     if (!confirm("시험 기록을 모두 삭제하시겠습니까?")) return;
     history = [];
-    saveHistory();
-    renderHistory();
+    // Firebase 기록 전체 삭제
+    if (firebaseDb) {
+      firebaseDb
+        .ref("history")
+        .remove()
+        .then(() => {
+          console.log("Firebase 시험 기록 전체 삭제 성공");
+          saveHistory();
+          renderHistory();
+        })
+        .catch((err) => {
+          console.error("Firebase 시험 기록 전체 삭제 실패:", err);
+          saveHistory();
+          renderHistory();
+        });
+    } else {
+      saveHistory();
+      renderHistory();
+    }
   });
 
   historyModalCloseBtn.addEventListener("click", () => {
