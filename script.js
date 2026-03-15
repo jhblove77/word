@@ -100,6 +100,38 @@ const DEFAULT_WORDS = [
   { english: "method", korean: "방법, 방식" }
 ];
 
+// Firebase 설정
+const firebaseConfig = {
+  apiKey: "AIzaSyA5mLrORLagbirJf-dVYskMJDQFkhV3QBg",
+  authDomain: "word-466a7.firebaseapp.com",
+  databaseURL: "https://word-466a7-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "word-466a7",
+  storageBucket: "word-466a7.firebasestorage.app",
+  messagingSenderId: "160477674976",
+  appId: "1:160477674976:web:cf23e4bcad0ce1348d3f85"
+};
+
+let firebaseDb = null;
+
+function initFirebase() {
+  try {
+    if (!window.firebase) {
+      console.error("Firebase SDK가 로드되지 않았습니다.");
+      alert("Firebase SDK 로드에 문제가 있습니다. 인터넷 연결 또는 스크립트 경로를 확인하세요.");
+      return;
+    }
+
+    if (!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
+    firebaseDb = firebase.database();
+    console.log("Firebase 초기화 성공");
+  } catch (err) {
+    console.error("Firebase 초기화 실패:", err);
+    alert("Firebase 초기화에 실패했습니다. 콘솔 로그를 확인하세요.");
+  }
+}
+
 // DOM 요소
 const mainMenu = document.getElementById("main-menu");
 const testScreen = document.getElementById("test-screen");
@@ -153,14 +185,44 @@ let currentIndex = 0;
 let answers = []; // { english, korean, isCorrect }
 let wordSortMode = "created"; // "created" | "accuracy"
 
-// 데이터 초기화 (로컬 스토리지 사용 안 함)
 function loadFromStorage() {
-  // 기본 단어로 초기화 (페이지 새로고침 시 항상 동일하게 시작)
+  // 기본값: 로컬 기본 단어 사용
   words = DEFAULT_WORDS.slice();
   history = [];
-
-  // 통계 초기 표시
   updateStats();
+
+  // Firebase에 저장된 단어가 있으면 그것으로 덮어쓰기
+  if (firebaseDb) {
+    firebaseDb
+      .ref("words")
+      .once("value")
+      .then((snapshot) => {
+        const loaded = [];
+        snapshot.forEach((child) => {
+          const v = child.val();
+          if (!v || !v.word || !v.mean) return;
+
+          const item = {
+            english: v.word,
+            korean: v.mean,
+            createdAt: v.date || null
+          };
+
+          // 나중에 correct 리스트를 활용해서 정답률 계산하고 싶다면 여기에서 매핑
+          loaded.push(item);
+        });
+
+        if (loaded.length > 0) {
+          words = loaded;
+          updateStats();
+          // 단어 관리 화면이 열려 있을 경우 목록 새로 그리기
+          renderWordList();
+        }
+      })
+      .catch((err) => {
+        console.error("Firebase에서 단어 목록을 불러오는 중 오류:", err);
+      });
+  }
 }
 
 function saveWords() {
@@ -577,7 +639,31 @@ function setupEvents() {
     if (!eng || !kor) return;
 
     // 새로 추가한 단어가 목록의 맨 위에 보이도록 앞쪽에 추가
-    words.unshift({ english: eng, korean: kor, createdAt: new Date().toISOString() });
+    const now = new Date();
+    const createdAt = now.toISOString();
+    words.unshift({ english: eng, korean: kor, createdAt });
+
+    // Firebase Realtime Database에 저장
+    if (firebaseDb) {
+      firebaseDb
+        .ref("words")
+        .push({
+          word: eng,
+          mean: kor,
+          date: createdAt,
+          correct: [] // 정답률 리스트(처음엔 비어 있는 배열)
+        })
+        .then(() => {
+          console.log("Firebase에 단어 저장 성공:", eng);
+        })
+        .catch((err) => {
+          console.error("Firebase에 단어 저장 실패:", err);
+          alert("Firebase에 단어를 저장하는 중 오류가 발생했습니다. 콘솔을 확인하세요.");
+        });
+    } else {
+      console.warn("firebaseDb가 초기화되지 않아 Firebase에 저장하지 못했습니다.");
+    }
+
     saveWords();
     newEnglishInput.value = "";
     newKoreanInput.value = "";
@@ -619,6 +705,7 @@ function setupEvents() {
 
 // 초기화
 function init() {
+  initFirebase();
   loadFromStorage();
   setupEvents();
 }
